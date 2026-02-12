@@ -5,11 +5,13 @@ pipeline {
     
     environment {
         // Update the main app image name to match the deployment file
-        DOCKER_IMAGE_NAME = 'laxg66/easyshop-app'
-        DOCKER_MIGRATION_IMAGE_NAME = 'laxg66/easyshop-migration'
+        DOCKER_IMAGE_NAME = 'uma1827/easyshop-app'
+        DOCKER_MIGRATION_IMAGE_NAME = 'uma1827/easyshop-migration'
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
         GITHUB_CREDENTIALS = credentials('github-credentials')
         GIT_BRANCH = "master"
+        DOCKER_BUILDKIT = "1"
+        DOCKER_CLI_EXPERIMENTAL = "enabled"
     }
     
     stages {
@@ -24,7 +26,7 @@ pipeline {
         stage('Clone Repository') {
             steps {
                 script {
-                    clone("https://github.com/lax66/tws-e-commerce-app_hackathon.git","master")
+                    clone("https://github.com/Umanagalla27/tws-e-commerce-app_hackathon.git", env.GIT_BRANCH)
                 }
             }
         }
@@ -106,17 +108,26 @@ pipeline {
             }
         }
         
-        // Add this new stage
         stage('Update Kubernetes Manifests') {
             steps {
                 script {
-                    update_k8s_manifests(
-                        imageTag: env.DOCKER_IMAGE_TAG,
-                        manifestsPath: 'kubernetes',
-                        gitCredentials: 'github-credentials',
-                        gitUserName: 'Jenkins CI',
-                        gitUserEmail: 'misc.lucky66@gmail.com'
-                    )
+                    withCredentials([usernamePassword(credentialsId: 'github-credentials', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+                        sh """
+                          set -e
+                          git config user.name 'Jenkins CI'
+                          git config user.email 'nagallauma88@gmail.com'
+                          sed -i "s|^\\s*image: .*$|image: ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}|g" kubernetes/08-easyshop-deployment.yaml
+                          if [ -f kubernetes/12-migration-job.yaml ]; then
+                            sed -i "s|^\\s*image: .*$|image: ${DOCKER_MIGRATION_IMAGE_NAME}:${DOCKER_IMAGE_TAG}|g" kubernetes/12-migration-job.yaml
+                          fi
+                          if [ -f kubernetes/10-ingress.yaml ]; then
+                            sed -i "s|^\\s*host: .*$|host: easyshop.letsdeployit.com|g" kubernetes/10-ingress.yaml
+                          fi
+                          git add kubernetes/01-namespace.yaml kubernetes/02-mongodb-pv.yaml kubernetes/03-mongodb-pvc.yaml kubernetes/04-configmap.yaml kubernetes/05-secrets.yaml kubernetes/06-mongodb-service.yaml kubernetes/07-mongodb-statefulset.yaml kubernetes/08-easyshop-deployment.yaml kubernetes/09-easyshop-service.yaml kubernetes/10-ingress.yaml kubernetes/11-hpa.yaml kubernetes/12-migration-job.yaml || true
+                          git commit -m "Update image tags to ${DOCKER_IMAGE_TAG} [ci skip]" || true
+                          git push "https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Umanagalla27/tws-e-commerce-app_hackathon.git" HEAD:${GIT_BRANCH}
+                        """
+                    }
                 }
             }
         }
